@@ -1,48 +1,36 @@
 """
-Database Schemas
+Database Schemas for Calendar SaaS
 
-Define your MongoDB collection schemas here using Pydantic models.
-These schemas are used for data validation in your application.
-
-Each Pydantic model represents a collection in your database.
-Model name is converted to lowercase for the collection name:
-- User -> "user" collection
-- Product -> "product" collection
-- BlogPost -> "blogs" collection
+Each Pydantic model corresponds to a MongoDB collection (lowercased class name).
 """
+from pydantic import BaseModel, Field, HttpUrl
+from typing import Optional, List
+from datetime import datetime
 
-from pydantic import BaseModel, Field
-from typing import Optional
+class CalendarSource(BaseModel):
+    name: str = Field(..., description="Human-friendly name, e.g., 'Airbnb Villa 1'")
+    url: HttpUrl = Field(..., description="iCal feed URL from OTA (Airbnb/Booking/VRBO/etc.)")
+    source_type: str = Field("ical", description="Type of source, default 'ical'")
+    color: Optional[str] = Field(None, description="Hex color for UI")
 
-# Example schemas (replace with your own):
+class Event(BaseModel):
+    source_id: str = Field(..., description="ID of the CalendarSource")
+    uid: Optional[str] = Field(None, description="Unique UID from the event if present")
+    title: str = Field(..., description="Event title")
+    start: datetime = Field(..., description="Start datetime (UTC)")
+    end: datetime = Field(..., description="End datetime (UTC)")
+    all_day: bool = Field(False, description="True if all-day event")
+    location: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    raw_url: Optional[str] = Field(None, description="Source iCal URL for traceability")
 
-class User(BaseModel):
-    """
-    Users collection schema
-    Collection name: "user" (lowercase of class name)
-    """
-    name: str = Field(..., description="Full name")
-    email: str = Field(..., description="Email address")
-    address: str = Field(..., description="Address")
-    age: Optional[int] = Field(None, ge=0, le=120, description="Age in years")
-    is_active: bool = Field(True, description="Whether user is active")
+class ExportRequest(BaseModel):
+    webhook_url: HttpUrl = Field(..., description="Apps Script Web App URL or any webhook to receive events JSON")
+    range_days: int = Field(30, ge=1, le=365, description="How many days ahead to export")
 
-class Product(BaseModel):
-    """
-    Products collection schema
-    Collection name: "product" (lowercase of class name)
-    """
-    title: str = Field(..., description="Product title")
-    description: Optional[str] = Field(None, description="Product description")
-    price: float = Field(..., ge=0, description="Price in dollars")
-    category: str = Field(..., description="Product category")
-    in_stock: bool = Field(True, description="Whether product is in stock")
-
-# Add your own schemas here:
-# --------------------------------------------------
-
-# Note: The Flames database viewer will automatically:
-# 1. Read these schemas from GET /schema endpoint
-# 2. Use them for document validation when creating/editing
-# 3. Handle all database operations (CRUD) directly
-# 4. You don't need to create any database endpoints!
+class WhatsAppRequest(BaseModel):
+    recipient_phone: str = Field(..., description="Recipient phone number in international format, e.g., +14155550100")
+    message: Optional[str] = Field(None, description="Optional custom message. If omitted, a schedule summary will be generated.")
+    token: Optional[str] = Field(None, description="WhatsApp Cloud API token. If omitted, will use WHATSAPP_TOKEN env var.")
+    phone_number_id: Optional[str] = Field(None, description="WhatsApp Cloud API phone number ID. If omitted, will use WHATSAPP_PHONE_NUMBER_ID env var.")
