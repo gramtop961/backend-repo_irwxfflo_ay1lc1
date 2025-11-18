@@ -8,9 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from database import db, create_document, get_documents
-from schemas import CalendarSource, Event, ExportRequest, WhatsAppRequest
+from schemas import Listing, CalendarSource, Event, ExportRequest, WhatsAppRequest
 
-app = FastAPI(title="Calendar Aggregator API")
+app = FastAPI(title="Flow API - Multi-listing OTA Calendar Aggregator")
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,8 +21,17 @@ app.add_middleware(
 )
 
 
-class SourceOut(CalendarSource):
+class ListingOut(Listing):
     id: str
+
+
+class SourceOut(BaseModel):
+    id: str
+    listing_id: str
+    name: str
+    url: str
+    source_type: str = "ical"
+    color: Optional[str] = None
 
 
 def parse_ical(url: str) -> List[dict]:
@@ -35,7 +44,6 @@ def parse_ical(url: str) -> List[dict]:
 
     text = resp.text
     # Minimal iCal parsing without external heavy deps
-    # We'll parse VEVENT blocks manually to avoid timezone pitfalls
     events: List[dict] = []
     lines = [l.strip() for l in text.splitlines()]
     # Handle folded lines
@@ -99,7 +107,7 @@ def parse_ical(url: str) -> List[dict]:
 
 @app.get("/")
 def read_root():
-    return {"message": "Calendar Aggregator API running"}
+    return {"message": "Flow API running"}
 
 
 @app.get("/test")
@@ -126,30 +134,57 @@ def test_database():
     return response
 
 
+# Listings
+@app.post("/api/listings", response_model=ListingOut)
+def add_listing(listing: Listing):
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    existing = db["listing"].find_one({"name": listing.name})
+    if existing:
+        return {"id": str(existing["_id"]), **listing.model_dump()}
+    new_id = create_document("listing", listing)
+    return {"id": new_id, **listing.model_dump()}
+
+
+@app.get("/api/listings", response_model=List[ListingOut])
+def list_listings():
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not configured")
+    docs = get_documents("listing")
+    return [ListingOut(id=str(d.get("_id")), name=d.get("name"), color=d.get("color")) for d in docs]
+
+
+# Sources (per listing)
 @app.post("/api/sources", response_model=SourceOut)
 def add_source(source: CalendarSource):
     if db is None:
         raise HTTPException(status_code=500, detail="Database not configured")
-    # Prevent duplicates by URL
-    existing = db["calendarsource"].find_one({"url": str(source.url)})
+    # Prevent duplicates by URL within the same listing
+    existing = db["calendarsource"].find_one({"url": str(source.url), "listing_id": source.listing_id})
     if existing:
-        return {
-            "id": str(existing["_id"]),
-            **source.model_dump(),
-        }
+        return SourceOut(
+            id=str(existing["_id"]),
+            listing_id=existing.get("listing_id"),
+            name=existing.get("name"),
+            url=existing.get("url"),
+            source_type=existing.get("source_type", "ical"),
+            color=existing.get("color")
+        )
     new_id = create_document("calendarsource", source)
-    return {"id": new_id, **source.model_dump()}
+    return SourceOut(id=new_id, **source.model_dump())
 
 
 @app.get("/api/sources", response_model=List[SourceOut])
-def list_sources():
+def list_sources(listing_id: Optional[str] = Query(None)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database not configured")
-    docs = get_documents("calendarsource")
+    q = {"listing_id": listing_id} if listing_id else {}
+    docs = list(db["calendarsource"].find(q))
     out: List[SourceOut] = []
     for d in docs:
         out.append(SourceOut(
             id=str(d.get("_id")),
+            listing_id=d.get("listing_id"),
             name=d.get("name"),
             url=d.get("url"),
             source_type=d.get("source_type", "ical"),
@@ -164,7 +199,7 @@ class SyncResponse(BaseModel):
 
 
 @app.post("/api/sync", response_model=SyncResponse)
-def sync_calendars(source_id: Optional[str] = None):
+def sync_calendars(source_id: Optional[str] = None, listing_id: Optional[str] = None):
     if db is None:
         raise HTTPException(status_code=500, detail="Database not configured")
 
@@ -175,18 +210,21 @@ def sync_calendars(source_id: Optional[str] = None):
             raise HTTPException(status_code=404, detail="Source not found")
         sources = [doc]
     else:
-        sources = list(db["calendarsource"].find({}))
+        q = {"listing_id": listing_id} if listing_id else {}
+        sources = list(db["calendarsource"].find(q))
 
     total_events = 0
     for s in sources:
         url = s.get("url")
         sid = str(s.get("_id"))
+        lid = s.get("listing_id")
         # Clear existing events for this source to avoid duplicates
         db["event"].delete_many({"source_id": sid})
         parsed = parse_ical(url)
         batch = []
         for e in parsed:
             ev = Event(
+                listing_id=lid,
                 source_id=sid,
                 uid=e.get("uid"),
                 title=e.get("title") or s.get("name"),
@@ -213,10 +251,12 @@ class EventsOut(BaseModel):
 
 
 @app.get("/api/events", response_model=EventsOut)
-def get_events(start: Optional[str] = Query(None), end: Optional[str] = Query(None)):
+def get_events(start: Optional[str] = Query(None), end: Optional[str] = Query(None), listing_id: Optional[str] = Query(None)):
     if db is None:
         raise HTTPException(status_code=500, detail="Database not configured")
-    q = {}
+    q: dict = {}
+    if listing_id:
+        q["listing_id"] = listing_id
     if start:
         try:
             start_dt = datetime.fromisoformat(start)
@@ -231,12 +271,15 @@ def get_events(start: Optional[str] = Query(None), end: Optional[str] = Query(No
             pass
 
     docs = list(db["event"].find(q))
-    # Map source colors/names
+    # Map source colors/names and listing
     sources = {str(s["_id"]): s for s in db["calendarsource"].find({})}
+    listings = {str(l["_id"]): l for l in db["listing"].find({})}
 
     def serialize(ev):
         sid = ev.get("source_id")
+        lid = ev.get("listing_id")
         src = sources.get(sid, {})
+        lst = listings.get(lid, {})
         return {
             "id": str(ev.get("_id")),
             "title": ev.get("title"),
@@ -250,6 +293,11 @@ def get_events(start: Optional[str] = Query(None), end: Optional[str] = Query(No
                 "id": sid,
                 "name": src.get("name"),
                 "color": src.get("color"),
+            },
+            "listing": {
+                "id": lid,
+                "name": lst.get("name"),
+                "color": lst.get("color"),
             }
         }
 
@@ -262,13 +310,20 @@ def export_to_sheet(payload: ExportRequest):
         raise HTTPException(status_code=500, detail="Database not configured")
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=payload.range_days)
-    docs = list(db["event"].find({"start": {"$lt": end}, "end": {"$gt": now}}).sort("start", 1))
+    q = {"start": {"$lt": end}, "end": {"$gt": now}}
+    if payload.listing_id:
+        q["listing_id"] = payload.listing_id
+    docs = list(db["event"].find(q).sort("start", 1))
     sources = {str(s["_id"]): s for s in db["calendarsource"].find({})}
+    listings = {str(l["_id"]): l for l in db["listing"].find({})}
     rows = []
     for d in docs:
         sid = d.get("source_id")
+        lid = d.get("listing_id")
         src = sources.get(sid, {})
+        lst = listings.get(lid, {})
         rows.append({
+            "listing": lst.get("name"),
             "source": src.get("name"),
             "title": d.get("title"),
             "start": d.get("start").isoformat() if isinstance(d.get("start"), datetime) else d.get("start"),
@@ -298,8 +353,12 @@ def whatsapp_send_schedule(payload: WhatsAppRequest):
 
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=7)
-    docs = list(db["event"].find({"start": {"$lt": end}, "end": {"$gt": now}}).sort("start", 1))
+    q = {"start": {"$lt": end}, "end": {"$gt": now}}
+    if payload.listing_id:
+        q["listing_id"] = payload.listing_id
+    docs = list(db["event"].find(q).sort("start", 1))
     sources = {str(s["_id"]): s for s in db["calendarsource"].find({})}
+    listings = {str(l["_id"]): l for l in db["listing"].find({})}
 
     if payload.message:
         body = payload.message
@@ -311,18 +370,23 @@ def whatsapp_send_schedule(payload: WhatsAppRequest):
             start: datetime = d.get("start")
             end_dt: datetime = d.get("end")
             if isinstance(start, str):
-                try: start = datetime.fromisoformat(start)
-                except Exception: pass
+                try:
+                    start = datetime.fromisoformat(start)
+                except Exception:
+                    pass
             if isinstance(end_dt, str):
-                try: end_dt = datetime.fromisoformat(end_dt)
-                except Exception: pass
+                try:
+                    end_dt = datetime.fromisoformat(end_dt)
+                except Exception:
+                    pass
             day = start.strftime("%a %d %b")
             if day != current_day:
                 lines.append(f"\n{day}")
                 current_day = day
             src = sources.get(d.get("source_id"), {})
+            lst = listings.get(d.get("listing_id"), {})
             time_part = "All-day" if d.get("all_day") else f"{start.strftime('%H:%M')}–{end_dt.strftime('%H:%M')}"
-            lines.append(f"• {time_part} · {d.get('title')} ({src.get('name','')})")
+            lines.append(f"• {time_part} · {d.get('title')} ({lst.get('name','')} · {src.get('name','')})")
         body = "\n".join(lines) if len(lines) > 1 else "No upcoming events."
 
     url = f"https://graph.facebook.com/v17.0/{phone_number_id}/messages"

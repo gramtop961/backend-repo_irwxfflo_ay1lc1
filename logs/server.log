@@ -1,15 +1,27 @@
 INFO:     Will watch for changes in these directories: ['/home/workspace']
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     Started reloader process [154] using StatReload
-INFO:     Started server process [156]
+INFO:     Started reloader process [243] using StatReload
+INFO:     Started server process [245]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     172.20.0.1:36458 - "HEAD / HTTP/1.1" 405 Method Not Allowed
-INFO:     172.20.0.1:36474 - "GET /api/sources HTTP/1.1" 200 OK
-INFO:     172.20.0.1:36476 - "GET /api/events HTTP/1.1" 200 OK
-INFO:     172.20.0.1:36480 - "GET /api/sources HTTP/1.1" 200 OK
-INFO:     172.20.0.1:36474 - "GET /api/events HTTP/1.1" 200 OK
-INFO:     172.20.0.1:41546 - "GET /api/sources HTTP/1.1" 200 OK
-INFO:     172.20.0.1:41532 - "GET /api/events HTTP/1.1" 200 OK
-INFO:     172.20.0.1:41546 - "GET /api/sources HTTP/1.1" 200 OK
-INFO:     172.20.0.1:41532 - "GET /api/events HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47542 - "HEAD / HTTP/1.1" 405 Method Not Allowed
+INFO:     172.20.0.1:47544 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47556 - "GET /api/events HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47544 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47570 - "GET /api/sources HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47556 - "GET /api/events HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47544 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47570 - "GET /api/sources HTTP/1.1" 200 OK
+INFO:     172.20.0.1:47556 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40404 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40430 - "GET /api/sources HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40420 - "GET /api/events HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40434 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40404 - "GET /api/sources HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40430 - "GET /api/events HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40434 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:40430 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:36672 - "OPTIONS /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:36672 - "POST /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:36672 - "GET /api/listings HTTP/1.1" 200 OK
+INFO:     172.20.0.1:36684 - "GET /api/events HTTP/1.1" 200 OK
